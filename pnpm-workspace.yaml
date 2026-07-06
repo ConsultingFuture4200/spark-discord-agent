@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+
+# Native modules whose install/postinstall build scripts must run.
+# esbuild (via vitest) ships a native binary; @discordjs/opus and sodium-native
+# are the DAVE/E2EE + Opus native deps the capture service needs on ARM64.
+onlyBuiltDependencies:
+  - esbuild
+  - "@discordjs/opus"
+  - sodium-native

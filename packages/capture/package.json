@@ -1,0 +1,35 @@
+{
+  "name": "@discord-agent/capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord capture/presence service: bot presence, DM/channel text intake, voice-state auto-join, and per-speaker DAVE audio capture that writes per-user tracks + a call manifest to the filesystem queue.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "bin": {
+    "discord-agent-capture": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@discord-agent/agent-tools": "workspace:*",
+    "@discord-agent/shared": "workspace:*",
+    "@discordjs/opus": "^0.10.0",
+    "@discordjs/voice": "^0.19.2",
+    "discord.js": "^14.26.4",
+    "prism-media": "^1.3.5",
+    "sodium-native": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@discord-agent/processing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Post-call batch service: watches the filesystem queue, runs faster-whisper STT per speaker track, merges by timestamp, produces a dual JSON summary via a local Ollama endpoint, posts to a Discord thread + optional email, and enforces audio retention.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "bin": {
+    "discord-agent-processing": "./dist/main.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@discord-agent/agent-tools": "workspace:*",
+    "@discord-agent/shared": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

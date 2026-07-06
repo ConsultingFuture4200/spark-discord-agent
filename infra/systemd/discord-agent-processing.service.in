@@ -1,0 +1,46 @@
+# Discord Agent — processing service (PRD §7 service [2]).
+#
+# This is a TEMPLATE (.service.in). Its @...@ placeholders are substituted by
+# infra/install.sh, which renders the concrete unit into /etc/systemd/system.
+# You can also render it by hand — see docs/DEPLOY.md.
+#
+# Watches the filesystem queue produced by the capture service, runs
+# faster-whisper (Spark GPU) + the local Ollama summary, and posts results.
+# Batch/latency-tolerant: a plain SIGTERM stop is fine.
+
+[Unit]
+Description=Discord Agent — processing (transcribe + summarize + deliver)
+Documentation=file://@APP_DIR@/docs/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+# Soft ordering only — the queue is on the filesystem, so processing does not
+# require capture to be up, but starting it after capture is tidy.
+After=discord-agent-capture.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@RUN_USER@
+Group=@RUN_GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@ENV_FILE@
+Environment=NODE_ENV=production
+ExecStart=@NODE_BIN@ @APP_DIR@/packages/processing/dist/index.js
+
+# NFR-2: always-on across reboots; restart on failure.
+Restart=on-failure
+RestartSec=5
+# Whisper + LLM passes can be long; allow a generous clean-stop window.
+TimeoutStopSec=120
+
+# --- Hardening (moderate: keeps home-dir storage + GPU device access working) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

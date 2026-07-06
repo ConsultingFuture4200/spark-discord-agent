@@ -1,0 +1,20 @@
+{
+  "name": "discord-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private always-on Discord agent with local (DGX Spark) inference: per-speaker voice recording, local faster-whisper transcription, and dual JSON summaries via a local Ollama endpoint.",
+  "type": "module",
+  "packageManager": "pnpm@11.8.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

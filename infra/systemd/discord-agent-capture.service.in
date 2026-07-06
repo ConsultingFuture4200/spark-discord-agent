@@ -1,0 +1,45 @@
+# Discord Agent — capture/presence service (PRD §7 service [1]).
+#
+# This is a TEMPLATE (.service.in). Its @...@ placeholders are substituted by
+# infra/install.sh, which renders the concrete unit into /etc/systemd/system.
+# You can also render it by hand — see docs/DEPLOY.md.
+#
+# The service runs the built Node entry point directly (no pnpm at runtime).
+# Environment is injected from the .env file; the service reads process.env
+# (there is no dotenv in the app), so EnvironmentFile is mandatory.
+
+[Unit]
+Description=Discord Agent — capture/presence (voice + text)
+Documentation=file://@APP_DIR@/docs/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+# Crash-loop guard: at most 5 restarts / 60s, else stop and stay failed.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@RUN_USER@
+Group=@RUN_GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@ENV_FILE@
+Environment=NODE_ENV=production
+ExecStart=@NODE_BIN@ @APP_DIR@/packages/capture/dist/index.js
+
+# NFR-2/NFR-3: survive failures; SIGINT so an in-progress recording can flush
+# per-speaker tracks + manifest before exit (capture handles SIGINT).
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# --- Hardening (moderate: keeps home-dir storage + GPU device access working) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
