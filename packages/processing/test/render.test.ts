@@ -1,6 +1,14 @@
-import type { CallSummary } from "@discord-agent/shared";
+import type {
+  CallSummary,
+  MergedTranscript,
+  VideoDescriptor,
+} from "@discord-agent/shared";
 import { describe, expect, it } from "vitest";
-import { renderSummaryMarkdown, splitForDiscord } from "../src/render.js";
+import {
+  renderSummaryMarkdown,
+  renderTimecodedTranscript,
+  splitForDiscord,
+} from "../src/render.js";
 
 const summary: CallSummary = {
   fullCall: {
@@ -30,6 +38,21 @@ describe("renderSummaryMarkdown", () => {
     expect(md).toContain("**Positions / concerns**");
   });
 
+  it("adds the video note when a video descriptor is present", () => {
+    const video: VideoDescriptor = {
+      path: "video.mp4",
+      startedAt: "2026-07-07T00:00:03.000Z",
+      startOffsetMs: 3000,
+    };
+    const md = renderSummaryMarkdown(summary, video);
+    expect(md).toContain("📹 Video recorded (aligned) — video.mp4");
+  });
+
+  it("omits the video note (byte-for-byte) when no video is present", () => {
+    expect(renderSummaryMarkdown(summary)).toBe(renderSummaryMarkdown(summary, undefined));
+    expect(renderSummaryMarkdown(summary)).not.toContain("📹");
+  });
+
   it("renders _None._ for empty lists", () => {
     const empty: CallSummary = {
       fullCall: {
@@ -44,6 +67,48 @@ describe("renderSummaryMarkdown", () => {
     const md = renderSummaryMarkdown(empty);
     expect(md).toContain("_None._");
     expect(md).toContain("_No per-speaker breakdown._");
+  });
+});
+
+describe("renderTimecodedTranscript", () => {
+  const transcript: MergedTranscript = {
+    callId: "call-1",
+    segments: [
+      { speaker: "Ada", startMs: 0, endMs: 1000, text: "hello" },
+      { speaker: "Ben", startMs: 10_000, endMs: 12_000, text: "hi there" },
+      { speaker: "Ada", startMs: 125_000, endMs: 126_000, text: "later" },
+    ],
+  };
+
+  it("prefixes each segment with its [MM:SS] video timecode (offset applied)", () => {
+    // OBS started 3s after the call → startOffsetMs = +3000.
+    const video: VideoDescriptor = {
+      path: "video.mp4",
+      startedAt: "2026-07-07T00:00:03.000Z",
+      startOffsetMs: 3000,
+    };
+    const md = renderTimecodedTranscript(transcript, video);
+    // 0ms segment predates the video → clamped to 00:00.
+    expect(md).toContain("[00:00] Ada: hello");
+    // 10000 − 3000 = 7000ms → 00:07.
+    expect(md).toContain("[00:07] Ben: hi there");
+    // 125000 − 3000 = 122000ms → 02:02.
+    expect(md).toContain("[02:02] Ada: later");
+    expect(md).toContain("Video: video.mp4");
+  });
+
+  it("handles a negative offset (OBS started before the call)", () => {
+    // OBS started 2s before the call → every segment shifts later in the video.
+    const video: VideoDescriptor = {
+      path: "video.mp4",
+      startedAt: "2026-07-06T23:59:58.000Z",
+      startOffsetMs: -2000,
+    };
+    const md = renderTimecodedTranscript(transcript, video);
+    // 0 − (−2000) = 2000ms → 00:02.
+    expect(md).toContain("[00:02] Ada: hello");
+    // 10000 + 2000 = 12000ms → 00:12.
+    expect(md).toContain("[00:12] Ben: hi there");
   });
 });
 

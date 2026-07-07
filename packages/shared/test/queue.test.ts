@@ -16,6 +16,7 @@ import {
   statusPath,
   summaryPath,
   transcriptPath,
+  videoPath,
   writeManifest,
   writeStatus,
 } from "../src/queue.js";
@@ -40,6 +41,9 @@ describe("queue path builders (pure)", () => {
       path.join(base, "call-1", "summary.json"),
     );
     expect(audioDir(base, "call-1")).toBe(path.join(base, "call-1", "audio"));
+    expect(videoPath(base, "call-1")).toBe(
+      path.join(base, "call-1", "video.mp4"),
+    );
   });
 
   it("builds a speaker track path with a default and custom extension", () => {

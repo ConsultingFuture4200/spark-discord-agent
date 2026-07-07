@@ -1,4 +1,10 @@
-import type { ActionItem, CallSummary } from "@discord-agent/shared";
+import {
+  videoTimeForSegmentMs,
+  type ActionItem,
+  type CallSummary,
+  type MergedTranscript,
+  type VideoDescriptor,
+} from "@discord-agent/shared";
 
 /**
  * Render a {@link CallSummary} into Discord/email-friendly markdown (FR-19).
@@ -8,12 +14,24 @@ import type { ActionItem, CallSummary } from "@discord-agent/shared";
 /** Discord's hard message-content limit is 2000; keep headroom for safety. */
 export const DISCORD_MESSAGE_LIMIT = 1900;
 
-export function renderSummaryMarkdown(summary: CallSummary): string {
+/** Filename of the video-aligned transcript artifact (M7, absent when no video). */
+export const TIMECODED_TRANSCRIPT_FILENAME = "transcript.timecoded.md";
+
+export function renderSummaryMarkdown(
+  summary: CallSummary,
+  video?: VideoDescriptor,
+): string {
   const { fullCall, perSpeaker } = summary;
   const out: string[] = [];
 
   out.push("# Call summary");
   out.push("");
+  // M7: one-line video note, present iff a video was captured. Omitted entirely
+  // when absent so the no-video summary is byte-for-byte identical to pre-M7.
+  if (video) {
+    out.push(`📹 Video recorded (aligned) — ${video.path}`);
+    out.push("");
+  }
   out.push("## Overview");
   out.push(fullCall.overview.trim() || "_No overview._");
 
@@ -51,6 +69,32 @@ export function renderSummaryMarkdown(summary: CallSummary): string {
   }
 
   return out.join("\n");
+}
+
+/**
+ * Render the merged transcript with each segment prefixed by its `[MM:SS]`
+ * VIDEO timecode (M7), so the transcript reads against the aligned recording.
+ * The timecode is the segment's call-relative `startMs` mapped onto the video
+ * via {@link videoTimeForSegmentMs} (clamped at 0). Pure — no clock reads.
+ */
+export function renderTimecodedTranscript(
+  transcript: MergedTranscript,
+  video: VideoDescriptor,
+): string {
+  const out: string[] = ["# Timecoded transcript", "", `Video: ${video.path}`, ""];
+  for (const s of transcript.segments) {
+    const timecode = formatTimecode(videoTimeForSegmentMs(s.startMs, video));
+    out.push(`[${timecode}] ${s.speaker}: ${s.text}`);
+  }
+  return out.join("\n");
+}
+
+/** Render a non-negative millisecond video offset as `MM:SS` (minutes not capped). */
+function formatTimecode(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function bulletList(items: readonly string[]): string {

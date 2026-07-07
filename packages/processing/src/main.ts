@@ -71,6 +71,7 @@ function main(): void {
     poster,
     ...(emailer ? { emailer } : {}),
     retentionDays: config.storage.audioRetentionDays,
+    videoRetentionDays: config.storage.videoRetentionDays,
     staleLeaseMs,
     now: () => new Date(),
     logger,

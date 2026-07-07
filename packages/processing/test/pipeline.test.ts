@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  callDir,
   createCallManifest,
   readStatus,
   summaryMarkdownPath,
@@ -10,9 +11,11 @@ import {
   writeManifest,
   writeStatus,
   type CallSummary,
+  type VideoDescriptor,
 } from "@discord-agent/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { processCall, type PipelineDeps } from "../src/pipeline.js";
+import { TIMECODED_TRANSCRIPT_FILENAME } from "../src/render.js";
 import type {
   ChatClient,
   Emailer,
@@ -151,6 +154,75 @@ describe("processCall — happy path", () => {
     expect(result.ok).toBe(true);
     expect(sendSummary).toHaveBeenCalledOnce();
     expect(sendSummary.mock.calls[0]![0].subject).toContain("call-1");
+  });
+});
+
+describe("processCall — video (M7)", () => {
+  let base: string;
+  beforeEach(async () => {
+    base = await mkdtemp(path.join(tmpdir(), "pipeline-video-"));
+  });
+  afterEach(async () => {
+    await rm(base, { recursive: true, force: true });
+  });
+
+  const VIDEO: VideoDescriptor = {
+    path: "video.mp4",
+    startedAt: "2026-07-05T11:00:03.000Z",
+    startOffsetMs: 3000,
+  };
+
+  async function seedWithVideo(callId: string, video?: VideoDescriptor): Promise<void> {
+    await writeManifest(
+      base,
+      createCallManifest({
+        callId,
+        guildId: "g1",
+        channelId: "chan-7",
+        startedAt: "2026-07-05T11:00:00.000Z",
+        endedAt: "2026-07-05T11:30:00.000Z",
+        tracks: [
+          { userId: "u1", displayName: "Ada", path: "audio/u1.pcm", startOffsetMs: 0 },
+          { userId: "u2", displayName: "Ben", path: "audio/u2.pcm", startOffsetMs: 5000 },
+        ],
+        ...(video ? { video } : {}),
+      }),
+    );
+    await writeStatus(base, callId, "ready-to-process", "2026-07-05T11:30:00.000Z");
+  }
+
+  it("writes a timecoded transcript and adds the summary note when video is present", async () => {
+    await seedWithVideo("call-v", VIDEO);
+    const poster = new RecordingPoster();
+    const result = await processCall("call-v", makeDeps(base, { poster }));
+
+    expect(result.ok).toBe(true);
+
+    // Summary carries the one-line video note.
+    const markdown = await readFile(summaryMarkdownPath(base, "call-v"), "utf8");
+    expect(markdown).toContain("📹 Video recorded (aligned) — video.mp4");
+    expect(poster.posts[0]!.markdown).toContain("📹 Video recorded (aligned)");
+
+    // Timecoded transcript artifact is written; Ben's 5000ms segment maps to
+    // 5000 − 3000 = 2000ms → [00:02] in the video.
+    const timecoded = await readFile(
+      path.join(callDir(base, "call-v"), TIMECODED_TRANSCRIPT_FILENAME),
+      "utf8",
+    );
+    expect(timecoded).toContain("[00:00] Ada: Hi from Ada");
+    expect(timecoded).toContain("[00:02] Ben: Hi from Ben");
+  });
+
+  it("writes no timecoded artifact and no note when video is absent", async () => {
+    await seedWithVideo("call-nov");
+    const result = await processCall("call-nov", makeDeps(base));
+
+    expect(result.ok).toBe(true);
+    const markdown = await readFile(summaryMarkdownPath(base, "call-nov"), "utf8");
+    expect(markdown).not.toContain("📹");
+    await expect(
+      readFile(path.join(callDir(base, "call-nov"), TIMECODED_TRANSCRIPT_FILENAME), "utf8"),
+    ).rejects.toThrow();
   });
 });
 

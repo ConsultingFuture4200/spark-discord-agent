@@ -44,6 +44,22 @@ export const SpeakerTrackSchema = z.object({
 export type SpeakerTrack = z.infer<typeof SpeakerTrackSchema>;
 
 /**
+ * An aligned video recording of the call (OBS). Present only when video was
+ * captured. `startOffsetMs` is the SIGNED difference wallclock(video start) −
+ * wallclock(call start): positive when OBS started after the call began. Used by
+ * {@link videoTimeForSegmentMs} to map transcript segments onto the video.
+ */
+export const VideoDescriptorSchema = z.object({
+  /** Path in the call dir (e.g. "video.mp4") or the OBS path if not copyable. */
+  path: z.string().min(1),
+  /** ISO-8601 wall-clock of the video's first frame (OBS start). */
+  startedAt: z.string().datetime(),
+  /** Signed ms = wallclock(video start) − wallclock(call start). */
+  startOffsetMs: z.number().int(),
+});
+export type VideoDescriptor = z.infer<typeof VideoDescriptorSchema>;
+
+/**
  * The manifest written once per call. `endedAt` is null while recording is
  * still in progress and set to an ISO string when the call ends.
  */
@@ -56,6 +72,8 @@ export const CallManifestSchema = z.object({
   /** ISO-8601 end timestamp, or null while still recording. */
   endedAt: z.string().datetime().nullable(),
   tracks: z.array(SpeakerTrackSchema),
+  /** Aligned video recording, absent when no video was captured. */
+  video: VideoDescriptorSchema.optional(),
 });
 export type CallManifest = z.infer<typeof CallManifestSchema>;
 
@@ -93,6 +111,7 @@ export function createCallManifest(input: {
   startedAt: string;
   endedAt?: string | null;
   tracks?: SpeakerTrack[];
+  video?: VideoDescriptor;
 }): CallManifest {
   return CallManifestSchema.parse({
     callId: input.callId,
@@ -101,5 +120,19 @@ export function createCallManifest(input: {
     startedAt: input.startedAt,
     endedAt: input.endedAt ?? null,
     tracks: input.tracks ?? [],
+    ...(input.video ? { video: input.video } : {}),
   });
+}
+
+/**
+ * Map a transcript segment's call-relative start (`segmentStartMs`, ms from call
+ * start) onto its position in the aligned video: `max(0, segmentStartMs −
+ * video.startOffsetMs)`. Clamped at 0 so a segment that predates the video's
+ * first frame maps to the video's start. Pure — no clock reads.
+ */
+export function videoTimeForSegmentMs(
+  segmentStartMs: number,
+  video: { startOffsetMs: number },
+): number {
+  return Math.max(0, segmentStartMs - video.startOffsetMs);
 }

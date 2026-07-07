@@ -3,6 +3,7 @@ import {
   CallManifestSchema,
   CallStatusSchema,
   createCallManifest,
+  videoTimeForSegmentMs,
 } from "../src/manifest.js";
 import {
   mergeTranscripts,
@@ -80,6 +81,60 @@ describe("CallStatus / manifest schemas", () => {
         tracks: [{ userId: "u1", displayName: "Ada", path: "p", startOffsetMs: -1 }],
       }),
     ).toThrow();
+  });
+
+  it("omits video by default and round-trips a manifest with a video descriptor", () => {
+    const noVideo = createCallManifest({
+      callId: "call-5",
+      guildId: "g1",
+      channelId: "c1",
+      startedAt: ISO,
+    });
+    expect(noVideo.video).toBeUndefined();
+
+    const withVideo = createCallManifest({
+      callId: "call-6",
+      guildId: "g1",
+      channelId: "c1",
+      startedAt: ISO,
+      video: { path: "video.mp4", startedAt: ISO, startOffsetMs: -1500 },
+    });
+    expect(withVideo.video).toEqual({
+      path: "video.mp4",
+      startedAt: ISO,
+      startOffsetMs: -1500,
+    });
+    expect(CallManifestSchema.parse(withVideo)).toEqual(withVideo);
+  });
+
+  it("rejects a video descriptor with a non-integer offset", () => {
+    expect(() =>
+      createCallManifest({
+        callId: "call-7",
+        guildId: "g1",
+        channelId: "c1",
+        startedAt: ISO,
+        video: { path: "video.mp4", startedAt: ISO, startOffsetMs: 12.5 },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("videoTimeForSegmentMs", () => {
+  it("subtracts a positive offset (OBS started after the call)", () => {
+    expect(videoTimeForSegmentMs(10_000, { startOffsetMs: 3000 })).toBe(7000);
+  });
+
+  it("adds a negative offset (OBS started before the call)", () => {
+    expect(videoTimeForSegmentMs(10_000, { startOffsetMs: -2000 })).toBe(12_000);
+  });
+
+  it("is identity for a zero offset", () => {
+    expect(videoTimeForSegmentMs(5000, { startOffsetMs: 0 })).toBe(5000);
+  });
+
+  it("clamps at 0 when the segment predates the video's first frame", () => {
+    expect(videoTimeForSegmentMs(1000, { startOffsetMs: 3000 })).toBe(0);
   });
 });
 

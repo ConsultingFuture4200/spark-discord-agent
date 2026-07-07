@@ -1,6 +1,6 @@
 import { listReadyCalls, reclaimStaleCalls } from "@discord-agent/shared";
 import { processCall, type PipelineDeps, type PipelineResult } from "./pipeline.js";
-import { purgeExpiredAudio } from "./retention.js";
+import { purgeExpiredAudio, purgeExpiredVideo } from "./retention.js";
 
 /**
  * The filesystem-queue watcher (PRD §7): polls the storage base dir for calls in
@@ -12,6 +12,8 @@ import { purgeExpiredAudio } from "./retention.js";
 export interface WatcherDeps extends PipelineDeps {
   /** Days to retain raw audio before purge; < 0 disables purging. */
   retentionDays: number;
+  /** Days to retain the aligned `video.mp4` before purge; < 0 disables purging. */
+  videoRetentionDays: number;
   /**
    * A call left `transcribing`/`summarizing` for longer than this (ms) is
    * assumed to be from a crashed run and re-enqueued (NFR-2/NFR-3). Must exceed
@@ -46,9 +48,14 @@ export async function pollOnce(deps: WatcherDeps): Promise<PipelineResult[]> {
   for (const callId of ready) {
     results.push(await processCall(callId, deps));
   }
-  await purgeExpiredAudio(deps.baseDir, deps.retentionDays, deps.now(), {
-    ...(deps.logger ? { logger: deps.logger } : {}),
-  });
+  const purgeOptions = deps.logger ? { logger: deps.logger } : {};
+  await purgeExpiredAudio(deps.baseDir, deps.retentionDays, deps.now(), purgeOptions);
+  await purgeExpiredVideo(
+    deps.baseDir,
+    deps.videoRetentionDays,
+    deps.now(),
+    purgeOptions,
+  );
   return results;
 }
 

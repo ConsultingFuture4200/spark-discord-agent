@@ -3,15 +3,18 @@ import {
   audioDir,
   readManifest,
   readStatus,
+  videoPath,
 } from "@discord-agent/shared";
 import type { Logger } from "./ports.js";
 
 /**
- * Audio retention (DECISIONS open-question #5): raw per-speaker audio is purged
- * after `retentionDays`; transcripts and summaries are kept indefinitely.
+ * Media retention (DECISIONS open-question #5; M7 for video): raw per-speaker
+ * audio is purged after `audioRetentionDays` and the aligned `video.mp4` after
+ * `videoRetentionDays`; transcripts and summaries (including the timecoded
+ * transcript) are kept indefinitely.
  *
  * Only calls that have reached `delivered` are eligible — their text artifacts
- * are safely persisted, and a not-yet-processed call still needs its audio. Age
+ * are safely persisted, and a not-yet-processed call still needs its media. Age
  * is measured from the call's `endedAt` (fallback `startedAt`). Pure w.r.t. the
  * clock: the caller passes `now`, so this is deterministic under test.
  */
@@ -27,11 +30,43 @@ export interface PurgeOptions {
  * Returns the callIds whose audio was purged, sorted. A retentionDays < 0
  * disables purging entirely.
  */
-export async function purgeExpiredAudio(
+export function purgeExpiredAudio(
   baseDir: string,
   retentionDays: number,
   now: Date,
   options: PurgeOptions = {},
+): Promise<string[]> {
+  return purgeExpired(baseDir, retentionDays, now, audioDir, "audio", options);
+}
+
+/**
+ * Delete the aligned `video.mp4` of every eligible expired call under `baseDir`
+ * (M7 — video is large + sensitive, so it may expire sooner than audio). Returns
+ * the callIds whose video was purged, sorted. A retentionDays < 0 disables it.
+ * The timecoded transcript and every other text artifact are kept.
+ */
+export function purgeExpiredVideo(
+  baseDir: string,
+  retentionDays: number,
+  now: Date,
+  options: PurgeOptions = {},
+): Promise<string[]> {
+  return purgeExpired(baseDir, retentionDays, now, videoPath, "video", options);
+}
+
+/**
+ * Shared sweep: for every `delivered` call whose reference timestamp is older
+ * than `retentionDays`, delete the target resolved by `resolveTarget` (an audio
+ * dir or the video file — `rm` with `force` handles both). `label` names the
+ * kind in log lines.
+ */
+async function purgeExpired(
+  baseDir: string,
+  retentionDays: number,
+  now: Date,
+  resolveTarget: (baseDir: string, callId: string) => string,
+  label: string,
+  options: PurgeOptions,
 ): Promise<string[]> {
   if (retentionDays < 0) return [];
 
@@ -57,12 +92,12 @@ export async function purgeExpiredAudio(
       const reference = manifest.endedAt ?? manifest.startedAt;
       if (Date.parse(reference) > cutoff) continue;
 
-      const dir = audioDir(baseDir, callId);
-      if (!(await pathExists(dir))) continue;
+      const target = resolveTarget(baseDir, callId);
+      if (!(await pathExists(target))) continue;
 
-      await rm(dir, { recursive: true, force: true });
+      await rm(target, { recursive: true, force: true });
       purged.push(callId);
-      options.logger?.info(`Purged audio for call ${callId} (retention).`);
+      options.logger?.info(`Purged ${label} for call ${callId} (retention).`);
     } catch (err) {
       options.logger?.warn(
         `Retention: skipping call ${callId}: ${err instanceof Error ? err.message : String(err)}`,

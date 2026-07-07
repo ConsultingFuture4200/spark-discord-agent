@@ -24,6 +24,8 @@ import { VoiceCoordinator } from "./voiceState.js";
 
 export * from "./agent.js";
 export * from "./autojoin.js";
+export * from "./obs.js";
+export * from "./recorder/recorderMove.js";
 export { ArmState } from "./armState.js";
 export { chunkMessage } from "./text.js";
 export {
@@ -86,6 +88,7 @@ export async function startCapture(
     armState,
     storageDir: config.storage.dir,
     logger,
+    ...(config.obs ? { obs: config.obs } : {}),
   });
 
   const onMessage = createMessageHandler({ client, agent, logger });

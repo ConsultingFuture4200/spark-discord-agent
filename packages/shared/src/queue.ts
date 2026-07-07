@@ -33,6 +33,7 @@ export const STATUS_FILENAME = "status.json";
 export const TRANSCRIPT_FILENAME = "transcript.json";
 export const SUMMARY_FILENAME = "summary.json";
 export const SUMMARY_MARKDOWN_FILENAME = "summary.md";
+export const VIDEO_FILENAME = "video.mp4";
 export const AUDIO_DIRNAME = "audio";
 
 // --- Pure path builders -----------------------------------------------------
@@ -60,6 +61,11 @@ export function summaryPath(baseDir: string, callId: string): string {
 
 export function summaryMarkdownPath(baseDir: string, callId: string): string {
   return path.join(callDir(baseDir, callId), SUMMARY_MARKDOWN_FILENAME);
+}
+
+/** Path for the call's aligned video recording: `<callDir>/video.mp4`. */
+export function videoPath(baseDir: string, callId: string): string {
+  return path.join(callDir(baseDir, callId), VIDEO_FILENAME);
 }
 
 /** Directory holding the per-speaker audio tracks for a call. */

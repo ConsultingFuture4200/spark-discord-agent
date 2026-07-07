@@ -67,7 +67,8 @@ startup by `loadConfig()` in `@discord-agent/shared`. Key groups:
 | Ollama | `OLLAMA_BASE_URL`, `OLLAMA_INTERACTIVE_MODEL`, `OLLAMA_BATCH_MODEL`, `OLLAMA_API_KEY` | endpoint on the Spark |
 | Whisper | `WHISPER_MODEL`, `WHISPER_COMPUTE_TYPE` | in-process STT config |
 | Email (optional) | `IMAP_*`, `SMTP_*`, `AGENT_EMAIL_FROM` | all-or-nothing block; partial config is a hard error |
-| Storage/retention | `STORAGE_DIR`, `AUDIO_RETENTION_DAYS` | see [Retention](#5-retention) |
+| Storage/retention | `STORAGE_DIR`, `AUDIO_RETENTION_DAYS`, `VIDEO_RETENTION_DAYS` | see [Retention](#5-retention) |
+| Video (optional) | `OBS_ENABLED`, `OBS_WEBSOCKET_URL`, `OBS_WEBSOCKET_PASSWORD`, `OBS_OUTPUT_DIR`, `RECORDER_USER_ID`, `RECORDER_LOBBY_CHANNEL_ID` | OFF by default; see [Video recording](#9-video-recording-optional) |
 | Runtime | `LOG_LEVEL` | |
 
 Optional keys read by tooling but not in the base schema:
@@ -170,6 +171,10 @@ and useful.
 
 - `AUDIO_RETENTION_DAYS` (default `7`) — raw per-speaker audio is auto-purged
   after this many days by the processing service.
+- `VIDEO_RETENTION_DAYS` (default = `AUDIO_RETENTION_DAYS`) — `video.mp4` is
+  auto-purged after this many days by the same sweep. Video is large and
+  sensitive, so keep it at or below the audio window. The timecoded transcript
+  (`transcript.timecoded.md`) is a text artifact and is kept indefinitely.
 - Transcripts and summaries are retained indefinitely under `STORAGE_DIR`
   (default `./data/calls`, one directory per call). Delete manually when desired.
 - Nothing is uploaded to the cloud; all call data stays on the Spark.
@@ -198,7 +203,9 @@ members**. Requirements:
 - Keep recording **opt-in per channel** — do not arm channels whose members have
   not agreed to be recorded.
 - The recording-start announcement (FR-10) must remain enabled so recording state
-  is always visible while a call is active.
+  is always visible while a call is active. When video is enabled (§9) the
+  announcement automatically states that **audio and video** are being recorded;
+  every participant must know video capture is active before joining.
 - The agent carries a non-removable Discord **APP/BOT badge** — members can always
   see it is an automated participant (self-botting to hide this is out of scope
   and against Discord ToS).
@@ -217,3 +224,51 @@ Per PRD §3 / D-8. **Read this before putting anything sensitive in text.**
   (IMAP/SMTP) also leaves the box by nature. Keep sensitive content out of text
   and email; the privacy guarantee is "inference + storage local," not "text
   private."
+
+## 9. Video recording (optional)
+
+Off by default. This is the ToS-compliant "Path A" from `docs/SPEC-video-recording.v0.1.0.md`:
+Discord never delivers camera/screen-share video to a bot, so video comes from a
+real client's rendered output via **OBS**. The bot only (a) tells OBS to
+start/stop over OBS WebSocket, and (b) optionally **moves** an already-connected
+recorder account between voice channels. It never automates a user account's
+voice *connection* (that is self-botting). With `OBS_ENABLED=false` behavior is
+byte-for-byte identical to audio-only, and any OBS/recorder failure degrades that
+call to audio-only — it never blocks the summary or delivery.
+
+**What you need:**
+
+1. **A recorder machine running OBS** with the built-in **WebSocket server**
+   enabled (OBS → Tools → WebSocket Server Settings → enable; note the port,
+   default `4455`, and set a password). This client also joins the call's video,
+   so run it on a host that can render the Discord call (a real desktop session).
+2. **OBS reachable from the capture service.** Set `OBS_WEBSOCKET_URL` to
+   `ws://<recorder-host>:4455` — a tailnet MagicDNS name or `100.x.y.z` when the
+   recorder host is not the capture host — and `OBS_WEBSOCKET_PASSWORD` to match.
+3. **A reachable output dir.** Point `OBS_OUTPUT_DIR` at the folder OBS writes
+   recordings to **as seen by the capture service** (a local path when
+   co-located, else a shared/synced/tailnet mount). The capture service copies
+   the finished file from there into the call dir as `video.mp4`. If the path is
+   not reachable, the manifest references OBS's own path instead and alignment
+   still works. Leave empty to always reference the OBS path.
+4. **(Optional) a dedicated recorder account, parked in a lobby.** Set
+   `RECORDER_USER_ID` to that account's Discord user ID and
+   `RECORDER_LOBBY_CHANNEL_ID` to the voice channel it idles in. The account must
+   **already be running a Discord client and be voice-connected** to the lobby —
+   the bot pulls it into the call and returns it on stop, but a bot cannot
+   originate its connection. Running a client unattended is the operator's
+   responsibility; use a **dedicated/disposable** account.
+5. **The bot needs the `Move Members` permission** in the guild for the recorder
+   move. Without it (or without `RECORDER_USER_ID`) OBS still records; only the
+   automatic channel move is skipped.
+
+**Consent (hard requirement):** when video is enabled the recording-start
+announcement automatically states that **audio and video** are being recorded
+(§7). Do not enable video on channels whose members have not agreed to video
+capture.
+
+**Retention:** `video.mp4` is purged after `VIDEO_RETENTION_DAYS` (see §5); the
+timecoded transcript is kept.
+
+**Rollback:** set `OBS_ENABLED=false` (or unset the block) and restart capture —
+the system reverts to audio-only with no other change.

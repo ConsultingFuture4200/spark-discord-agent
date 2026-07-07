@@ -20,7 +20,11 @@ import type {
   SttBackend,
   SummaryPoster,
 } from "./ports.js";
-import { renderSummaryMarkdown } from "./render.js";
+import {
+  renderSummaryMarkdown,
+  renderTimecodedTranscript,
+  TIMECODED_TRANSCRIPT_FILENAME,
+} from "./render.js";
 import { summarizeCall, type SummarizeOptions } from "./summarize.js";
 
 /**
@@ -132,7 +136,10 @@ export async function processCall(
       throw new Error(`Summarization failed validation: ${summaryResult.error}`);
     }
     const summary = summaryResult.value;
-    const markdown = renderSummaryMarkdown(summary);
+    // M7: when a video was captured, the summary carries a one-line note and a
+    // timecoded transcript artifact is written. Both are absent (and the summary
+    // is byte-for-byte unchanged) when `manifest.video` is undefined.
+    const markdown = renderSummaryMarkdown(summary, manifest.video);
 
     await writeFile(
       summaryPath(baseDir, callId),
@@ -140,6 +147,23 @@ export async function processCall(
       "utf8",
     );
     await writeFile(summaryMarkdownPath(baseDir, callId), markdown, "utf8");
+
+    // Best-effort (M7 invariant): a failure writing the video-aligned transcript
+    // must never block delivery — it degrades to no timecoded artifact, not a
+    // failed call.
+    if (manifest.video) {
+      try {
+        await writeFile(
+          path.join(callDir(baseDir, callId), TIMECODED_TRANSCRIPT_FILENAME),
+          renderTimecodedTranscript(transcript, manifest.video),
+          "utf8",
+        );
+      } catch (err) {
+        logger?.warn(
+          `Call ${callId}: failed to write timecoded transcript: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     // The two delivery legs are tracked independently so a reclaim re-attempts
     // only the unfinished one: a crash after the post + threadId persist but

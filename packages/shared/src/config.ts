@@ -80,6 +80,20 @@ const RawEnvSchema = z.object({
   // Storage & retention
   STORAGE_DIR: z.string().min(1).default("./data/calls"),
   AUDIO_RETENTION_DAYS: envInt(7),
+  // Video retention defaults to AUDIO_RETENTION_DAYS when unset (resolved in loadConfig).
+  VIDEO_RETENTION_DAYS: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v === "" ? undefined : v))
+    .pipe(z.coerce.number().int().optional()),
+
+  // OBS video recording (optional block, gated by OBS_ENABLED). Validated when enabled.
+  OBS_ENABLED: envBool(false),
+  OBS_WEBSOCKET_URL: z.string().optional(),
+  OBS_WEBSOCKET_PASSWORD: z.string().optional(),
+  OBS_OUTPUT_DIR: z.string().optional(),
+  RECORDER_USER_ID: z.string().optional(),
+  RECORDER_LOBBY_CHANNEL_ID: z.string().optional(),
 
   // Runtime
   LOG_LEVEL: LogLevelSchema.default("info"),
@@ -128,9 +142,23 @@ export const EmailConfigSchema = z.object({
   smtp: SmtpConfigSchema,
 });
 
+/**
+ * OBS video-recording block. Present only when `OBS_ENABLED=true`; otherwise
+ * `config.obs` is undefined and no OBS/recorder code runs. `websocketUrl` is the
+ * one required field when enabled; the rest are optional.
+ */
+export const ObsConfigSchema = z.object({
+  websocketUrl: z.string().url(),
+  websocketPassword: z.string().optional(),
+  outputDir: z.string().optional(),
+  recorderUserId: z.string().optional(),
+  recorderLobbyChannelId: z.string().optional(),
+});
+
 export const StorageConfigSchema = z.object({
   dir: z.string(),
   audioRetentionDays: z.number().int().nonnegative(),
+  videoRetentionDays: z.number().int().nonnegative(),
 });
 
 export const ConfigSchema = z.object({
@@ -139,6 +167,8 @@ export const ConfigSchema = z.object({
   whisper: WhisperConfigSchema,
   /** Present only when a full IMAP+SMTP set is configured; otherwise undefined. */
   email: EmailConfigSchema.optional(),
+  /** Present only when `OBS_ENABLED=true`; otherwise undefined (feature off). */
+  obs: ObsConfigSchema.optional(),
   storage: StorageConfigSchema,
   logLevel: LogLevelSchema,
 });
@@ -149,6 +179,7 @@ export type WhisperConfig = z.infer<typeof WhisperConfigSchema>;
 export type ImapConfig = z.infer<typeof ImapConfigSchema>;
 export type SmtpConfig = z.infer<typeof SmtpConfigSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
+export type ObsConfig = z.infer<typeof ObsConfigSchema>;
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -169,6 +200,10 @@ export class ConfigError extends Error {
  * Email is treated as an optional block: if none of the IMAP/SMTP fields are
  * set, `config.email` is `undefined` (agent runs without email). If the block
  * is partially set, that is a hard error — half-configured email is a bug.
+ *
+ * OBS is gated by `OBS_ENABLED`: false (default) → `config.obs` is `undefined`
+ * (feature off, behavior identical to audio-only); true but missing the required
+ * `OBS_WEBSOCKET_URL` is a hard error.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = RawEnvSchema.safeParse(env);
@@ -178,6 +213,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const e = parsed.data;
 
   const email = buildEmailConfig(e);
+  const obs = buildObsConfig(e);
 
   const config: Config = {
     discord: {
@@ -199,9 +235,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       computeType: e.WHISPER_COMPUTE_TYPE,
     },
     ...(email ? { email } : {}),
+    ...(obs ? { obs } : {}),
     storage: {
       dir: e.STORAGE_DIR,
       audioRetentionDays: e.AUDIO_RETENTION_DAYS,
+      videoRetentionDays: e.VIDEO_RETENTION_DAYS ?? e.AUDIO_RETENTION_DAYS,
     },
     logLevel: e.LOG_LEVEL,
   };
@@ -246,6 +284,34 @@ function buildEmailConfig(e: z.infer<typeof RawEnvSchema>): EmailConfig | undefi
     throw new ConfigError(
       "Email is partially configured. Set all of IMAP_HOST/IMAP_USER/IMAP_PASSWORD, " +
         "SMTP_HOST/SMTP_USER/SMTP_PASSWORD, and AGENT_EMAIL_FROM, or leave them all unset.\n" +
+        formatZodError(result.error),
+    );
+  }
+  return result.data;
+}
+
+/**
+ * Build the OBS block when `OBS_ENABLED=true`, or return undefined when the gate
+ * is off. Throws when enabled but the required `OBS_WEBSOCKET_URL` is missing or
+ * invalid — a half-configured recorder is a bug, not a silent audio-only run.
+ */
+function buildObsConfig(e: z.infer<typeof RawEnvSchema>): ObsConfig | undefined {
+  if (!e.OBS_ENABLED) return undefined;
+
+  const candidate = {
+    websocketUrl: e.OBS_WEBSOCKET_URL,
+    websocketPassword: e.OBS_WEBSOCKET_PASSWORD,
+    outputDir: e.OBS_OUTPUT_DIR,
+    recorderUserId: e.RECORDER_USER_ID,
+    recorderLobbyChannelId: e.RECORDER_LOBBY_CHANNEL_ID,
+  };
+
+  const result = ObsConfigSchema.safeParse(candidate);
+  if (!result.success) {
+    throw new ConfigError(
+      "OBS is enabled (OBS_ENABLED=true) but misconfigured. Set OBS_WEBSOCKET_URL " +
+        "to the OBS WebSocket v5 URL (e.g. ws://recorder-host:4455), or set " +
+        "OBS_ENABLED=false to disable video recording.\n" +
         formatZodError(result.error),
     );
   }
