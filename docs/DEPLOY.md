@@ -236,31 +236,41 @@ voice *connection* (that is self-botting). With `OBS_ENABLED=false` behavior is
 byte-for-byte identical to audio-only, and any OBS/recorder failure degrades that
 call to audio-only — it never blocks the summary or delivery.
 
-**What you need:**
+**Deployment topology (this workstation).** OBS runs on **this workstation**,
+co-located with the capture service and the recorder/`context-backdrop` client;
+model inference (Ollama + faster-whisper) stays on the Spark over Tailscale. So the
+OBS WebSocket and output dir are **local** — no mount or cross-host copy.
 
-1. **A recorder machine running OBS** with the built-in **WebSocket server**
-   enabled (OBS → Tools → WebSocket Server Settings → enable; note the port,
-   default `4455`, and set a password). This client also joins the call's video,
-   so run it on a host that can render the Discord call (a real desktop session).
-2. **OBS reachable from the capture service.** Set `OBS_WEBSOCKET_URL` to
-   `ws://<recorder-host>:4455` — a tailnet MagicDNS name or `100.x.y.z` when the
-   recorder host is not the capture host — and `OBS_WEBSOCKET_PASSWORD` to match.
-3. **A reachable output dir.** Point `OBS_OUTPUT_DIR` at the folder OBS writes
-   recordings to **as seen by the capture service** (a local path when
-   co-located, else a shared/synced/tailnet mount). The capture service copies
-   the finished file from there into the call dir as `video.mp4`. If the path is
-   not reachable, the manifest references OBS's own path instead and alignment
-   still works. Leave empty to always reference the OBS path.
-4. **(Optional) a dedicated recorder account, parked in a lobby.** Set
-   `RECORDER_USER_ID` to that account's Discord user ID and
-   `RECORDER_LOBBY_CHANNEL_ID` to the voice channel it idles in. The account must
-   **already be running a Discord client and be voice-connected** to the lobby —
-   the bot pulls it into the call and returns it on stop, but a bot cannot
-   originate its connection. Running a client unattended is the operator's
-   responsibility; use a **dedicated/disposable** account.
-5. **The bot needs the `Move Members` permission** in the guild for the recorder
-   move. Without it (or without `RECORDER_USER_ID`) OBS still records; only the
-   automatic channel move is skipped.
+**Shared OBS with `context-backdrop`.** The same OBS instance runs the
+`context-backdrop` pipeline (operator video + HUD cards → virtual camera → Discord;
+see `~/Downloads/context-backdrop-prd-v0.3.0.md`). This bot **only toggles recording**
+(`StartRecord`/`StopRecord`) — it never touches scenes, sources, or the virtual
+camera, which context-backdrop owns. The two coexist on one OBS.
+
+**What OBS records — record the incoming call grid (recommended).** context-backdrop's
+*program / virtual-camera* output is the operator+HUD composite (the outgoing feed). The
+useful meeting video is the **incoming call grid**, so add a **dedicated OBS scene**
+that window-captures the Discord client (everyone's tiles) and select it as OBS's
+**recording** scene while the virtual camera keeps sending context-backdrop's composite.
+Net: virtual cam = operator+HUD (unchanged), file recording = the meeting grid (aligned
+to the transcript). To record the composite instead, just point recording at that scene
+— the bot is scene-agnostic and grabs whatever file OBS writes.
+
+**Setup steps:**
+
+1. **Enable OBS WebSocket** (OBS → Tools → WebSocket Server Settings → enable; default
+   port `4455`; set a password). Set `OBS_ENABLED=true`,
+   `OBS_WEBSOCKET_URL=ws://127.0.0.1:4455`, and `OBS_WEBSOCKET_PASSWORD` to match.
+2. **Add the grid-capture scene** (above) and select it as OBS's recording scene.
+3. **Set the output dir.** `OBS_OUTPUT_DIR=/home/bob/Videos/discord-agent` (a local
+   folder OBS records into); the capture service copies the finished file into the call
+   dir as `video.mp4`. Leave empty to reference OBS's own path instead of copying.
+4. **Recorder-account move — likely unused here.** In the context-backdrop deployment
+   the recording account is *already in the call* (running its virtual camera), so leave
+   `RECORDER_USER_ID` **unset** and the automatic move is skipped. Set it (plus
+   `RECORDER_LOBBY_CHANNEL_ID` and the bot's `Move Members` permission) only if you
+   instead park a separate recorder account in a lobby for the bot to pull in — that
+   account must already be running a client and be voice-connected.
 
 **Consent (hard requirement):** when video is enabled the recording-start
 announcement automatically states that **audio and video** are being recorded
