@@ -88,6 +88,7 @@ keeps the audio path independent of transcription and summarization.
 | [`packages/capture`](packages/capture) | Discord bot — presence, DM/channel text, voice-state auto-join, per-speaker DAVE capture, writes tracks + manifest and enqueues each call. |
 | [`packages/processing`](packages/processing) | The batch worker — watches the queue, runs faster-whisper, merges transcripts, generates the dual summary, and delivers it. |
 | [`packages/agent-tools`](packages/agent-tools) | Email (IMAP read / SMTP send) and the tool-calling reasoning loop shared by DM handling and email delivery. |
+| [`packages/ingest`](packages/ingest) | gBrain community-memory emitters — converts messages, edits/deletes, members, call outputs, and media attachments into memory nodes + typed graph edges over gBrain's HTTP API, with consent gates and the `/ask` fused-recall renderer. |
 
 ## Prerequisites
 
@@ -174,6 +175,28 @@ Full reference lives in [`.env.example`](.env.example). The essentials:
 | Whisper | `WHISPER_BASE_URL`, `WHISPER_MODEL`, `WHISPER_COMPUTE_TYPE` | faster-whisper STT service |
 | Email *(optional)* | `IMAP_*`, `SMTP_*`, `AGENT_EMAIL_FROM` | all-or-nothing block; partial config is a hard error |
 | Storage | `STORAGE_DIR`, `AUDIO_RETENTION_DAYS` | audio purged after N days; text kept |
+| gBrain ingest *(optional)* | `INGEST_ENABLED`, `GBRAIN_BASE_URL`, `INGEST_CONSENT_PATH`, `INGEST_STATE_DIR`, `INGEST_REGION` | off by default; see below |
+
+## Community memory (gBrain ingest)
+
+With `INGEST_ENABLED=true`, the agent feeds an opt-in slice of the server into
+[gBrain](../gbrain) (the single-writer memory service in front of TriDB) and
+answers `/ask <question>` with fused graph-aware recall, including the engine's
+honesty probes (`graph_censored`, `termination_reason`) in a footer.
+
+- **Consent is opt-in and default-DENY.** `INGEST_CONSENT_PATH` points at a JSON
+  file — `{ "allowChannels": ["<channel id>", ...], "optOutMembers": ["<user id>", ...] }`.
+  Channels not allowlisted are never ingested; a missing file ingests nothing.
+  Opted-out members' messages, mentions, and call speech are all excluded at
+  emit time. Voice ingestion keeps the existing announce-on-record behavior.
+- **What gets ingested:** messages (with authored / in_channel / in_thread /
+  replies_to / mentions edges), member identities, and each delivered call's
+  transcript chunks, summary, decisions, and action items. Edits become new
+  nodes superseding the original (append-only); deletions become queued
+  tombstone requests. Video/image attachments emit a media-ingest request
+  pointing gBrain's media pipeline at the URL.
+- **State:** `INGEST_STATE_DIR` holds the source-URI → memory-id map that makes
+  ingest idempotent and lets later events edge against earlier ones.
 
 ## Privacy boundary
 
