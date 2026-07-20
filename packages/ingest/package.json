@@ -1,0 +1,32 @@
+{
+  "name": "@discord-agent/ingest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "gBrain ingest emitter: converts bot events (messages, members, call outputs, attachments) into gBrain memory nodes + typed graph edges over HTTP, with consent gates (channel allowlist + member opt-out), supersedes-based edit handling, and the /ask fused-recall renderer.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@discord-agent/shared": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
