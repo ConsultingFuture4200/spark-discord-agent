@@ -387,6 +387,72 @@ describe("processCall — delivery idempotency on reclaim", () => {
   });
 });
 
+describe("processCall — gBrain call ingest (best-effort)", () => {
+  let base: string;
+  beforeEach(async () => {
+    base = await mkdtemp(path.join(tmpdir(), "pipeline-ingest-"));
+    await seedReadyCall(base, "call-g");
+  });
+  afterEach(async () => {
+    await rm(base, { recursive: true, force: true });
+  });
+
+  it("passes the manifest, transcript, and summary to the ingest hook after delivery", async () => {
+    const ingestCall = vi.fn(async () => {});
+    const result = await processCall(
+      "call-g",
+      makeDeps(base, { callIngest: { ingestCall } }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(ingestCall).toHaveBeenCalledOnce();
+    const input = ingestCall.mock.calls[0]![0] as unknown as {
+      manifest: { callId: string; channelId: string };
+      transcript: { segments: unknown[] };
+      summary: CallSummary;
+    };
+    expect(input.manifest.callId).toBe("call-g");
+    expect(input.manifest.channelId).toBe("chan-7");
+    expect(input.transcript.segments).toHaveLength(2);
+    expect(input.summary.fullCall.overview).toBe("Roadmap sync.");
+  });
+
+  it("still delivers the call when ingest throws", async () => {
+    const ingestCall = vi.fn(async () => {
+      throw new Error("gbrain unreachable");
+    });
+    const result = await processCall(
+      "call-g",
+      makeDeps(base, { callIngest: { ingestCall } }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect((await readStatus(base, "call-g")).status).toBe("delivered");
+  });
+
+  it("does not ingest a failed call", async () => {
+    const ingestCall = vi.fn(async () => {});
+    const result = await processCall(
+      "call-g",
+      makeDeps(base, { stt: new ThrowingStt(), callIngest: { ingestCall } }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(ingestCall).not.toHaveBeenCalled();
+  });
+
+  it("does not ingest a silent call (no transcript, no summary)", async () => {
+    const ingestCall = vi.fn(async () => {});
+    const result = await processCall(
+      "call-g",
+      makeDeps(base, { stt: new FakeStt({}), callIngest: { ingestCall } }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(ingestCall).not.toHaveBeenCalled();
+  });
+});
+
 describe("processCall — failure handling", () => {
   let base: string;
   beforeEach(async () => {

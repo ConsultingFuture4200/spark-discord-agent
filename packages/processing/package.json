@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@discord-agent/agent-tools": "workspace:*",
+    "@discord-agent/ingest": "workspace:*",
     "@discord-agent/shared": "workspace:*",
     "zod": "^3.25.76"
   },

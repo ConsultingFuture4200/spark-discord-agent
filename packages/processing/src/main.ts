@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { loadConfig } from "@discord-agent/shared";
+import { loadConfig, type IngestConfig } from "@discord-agent/shared";
+import {
+  GbrainClient,
+  IdMap,
+  IngestEmitter,
+  loadConsentConfig,
+} from "@discord-agent/ingest";
 import { OllamaChatClient } from "./chat.js";
 import { createEmailer } from "./emailer.js";
 import { acquireSingleInstanceLock } from "./lock.js";
 import { createLogger } from "./logger.js";
 import { DiscordRestPoster } from "./poster.js";
 import { WhisperHttpBackend } from "./stt.js";
+import type { CallIngest, Logger } from "./ports.js";
 import { startWatcher, type WatcherDeps } from "./watcher.js";
 
 /**
@@ -22,7 +29,7 @@ const DEFAULT_POLL_INTERVAL_MS = 5000;
 /** Default lease before a stuck in-progress call is reclaimed: 15 minutes. */
 const DEFAULT_STALE_LEASE_MS = 15 * 60 * 1000;
 
-function main(): void {
+async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
   const env = process.env;
@@ -63,6 +70,12 @@ function main(): void {
     ? createEmailer(config.email, env["SUMMARY_EMAIL_TO"] || config.email.smtp.from)
     : undefined;
 
+  // Optional gBrain ingest of delivered calls (PRD Phase 3): present only when
+  // INGEST_ENABLED=true; consent gating happens inside the emitter.
+  const callIngest = config.ingest
+    ? await buildCallIngest(config.ingest, logger)
+    : undefined;
+
   const deps: WatcherDeps = {
     baseDir: config.storage.dir,
     stt,
@@ -70,6 +83,7 @@ function main(): void {
     batchModel: config.ollama.batchModel,
     poster,
     ...(emailer ? { emailer } : {}),
+    ...(callIngest ? { callIngest } : {}),
     retentionDays: config.storage.audioRetentionDays,
     videoRetentionDays: config.storage.videoRetentionDays,
     staleLeaseMs,
@@ -96,9 +110,30 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-try {
-  main();
-} catch (err) {
+/** Build the call-output ingest adapter from the validated ingest config. */
+async function buildCallIngest(
+  ingest: IngestConfig,
+  logger: Logger,
+): Promise<CallIngest> {
+  const consent = await loadConsentConfig(ingest.consentPath);
+  const emitter = new IngestEmitter({
+    client: new GbrainClient({ baseUrl: ingest.gbrainBaseUrl }),
+    idMap: await IdMap.open(path.join(ingest.stateDir, "idmap.json")),
+    consent,
+    region: ingest.region,
+    logger,
+  });
+  return {
+    async ingestCall(input): Promise<void> {
+      const result = await emitter.handleCallOutput(input);
+      if (result.skipped) {
+        logger.info(`Call ${input.manifest.callId}: ingest skipped (${result.skipped}).`);
+      }
+    },
+  };
+}
+
+main().catch((err: unknown) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
-}
+});

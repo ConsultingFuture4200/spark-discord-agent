@@ -13,6 +13,7 @@ import {
 } from "@discord-agent/shared";
 import { mergeTrackTranscripts } from "./merge.js";
 import type {
+  CallIngest,
   ChatClient,
   Emailer,
   Logger,
@@ -44,6 +45,8 @@ export interface PipelineDeps {
   poster: SummaryPoster;
   /** Optional email delivery (adapter from `@discord-agent/agent-tools`). */
   emailer?: Emailer;
+  /** Optional gBrain ingest of the call's outputs (`@discord-agent/ingest`). */
+  callIngest?: CallIngest;
   /** Clock injection — the pipeline reads it for every status timestamp. */
   now: () => Date;
   logger?: Logger;
@@ -228,6 +231,21 @@ export async function processCall(
       threadId,
       emailedAt,
     );
+
+    // Community-memory ingest (PRD Phase 3): best-effort AFTER the terminal
+    // write — an ingest failure must never fail a delivered call, and the
+    // emitter's per-call idempotency makes a reclaimed re-run a no-op.
+    if (deps.callIngest) {
+      try {
+        await deps.callIngest.ingestCall({ manifest, transcript, summary });
+      } catch (ingestErr) {
+        logger?.warn(
+          `Call ${callId}: gBrain ingest failed: ${
+            ingestErr instanceof Error ? ingestErr.message : String(ingestErr)
+          }`,
+        );
+      }
+    }
     return { callId, ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

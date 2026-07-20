@@ -1,3 +1,9 @@
+import type {
+  CallManifest,
+  CallSummary,
+  MergedTranscript,
+} from "@discord-agent/shared";
+
 /**
  * Ports (interfaces) the processing pipeline depends on.
  *
@@ -60,6 +66,20 @@ export interface SummaryPoster {
 /** Optional email delivery. Concrete impl lives in `@discord-agent/agent-tools`. */
 export interface Emailer {
   sendSummary(input: { subject: string; markdown: string }): Promise<void>;
+}
+
+/**
+ * Optional gBrain ingest of a delivered call's outputs (transcript chunks,
+ * summary, decisions, action items). Concrete impl is the emitter from
+ * `@discord-agent/ingest`; consent gating lives inside it. Best-effort: the
+ * pipeline never fails a delivered call over an ingest error.
+ */
+export interface CallIngest {
+  ingestCall(input: {
+    manifest: CallManifest;
+    transcript: MergedTranscript;
+    summary: CallSummary;
+  }): Promise<void>;
 }
 
 export interface Logger {
