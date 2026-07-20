@@ -54,6 +54,9 @@ importers:
       '@discord-agent/agent-tools':
         specifier: workspace:*
         version: link:../agent-tools
+      '@discord-agent/ingest':
+        specifier: workspace:*
+        version: link:../ingest
       '@discord-agent/shared':
         specifier: workspace:*
         version: link:../shared

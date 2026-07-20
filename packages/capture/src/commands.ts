@@ -15,8 +15,10 @@ import type { VoiceCoordinator } from "./voiceState.js";
 
 /**
  * Slash commands for operator control of auto-record (PRD FR-9 manual arm/
- * disarm override). `/arm` and `/disarm` take an optional voice-channel option;
- * when omitted they act on the caller's current voice channel.
+ * disarm override) plus community-memory recall. `/arm` and `/disarm` take an
+ * optional voice-channel option; when omitted they act on the caller's current
+ * voice channel. `/ask` queries gBrain's fused recall (answers include the
+ * engine honesty footer) and works only when ingest is configured.
  */
 export const commandData = [
   new SlashCommandBuilder()
@@ -39,6 +41,15 @@ export const commandData = [
         .addChannelTypes(ChannelType.GuildVoice)
         .setRequired(false),
     ),
+  new SlashCommandBuilder()
+    .setName("ask")
+    .setDescription("Ask the community memory (gBrain fused recall)")
+    .addStringOption((o) =>
+      o
+        .setName("question")
+        .setDescription("What do you want to know?")
+        .setRequired(true),
+    ),
 ].map((c) => c.toJSON());
 
 /** Register the guild-scoped slash commands (instant, unlike global commands). */
@@ -58,15 +69,43 @@ export interface InteractionHandlerDeps {
   armState: ArmState;
   coordinator: VoiceCoordinator;
   logger: Logger;
+  /**
+   * The /ask answerer (from the ingest wiring). Absent when ingest is
+   * disabled — /ask then replies that the memory service is not configured.
+   */
+  ask?: (question: string) => Promise<string>;
 }
 
 export function createInteractionHandler(
   deps: InteractionHandlerDeps,
 ): (interaction: Interaction) => Promise<void> {
-  const { armState, coordinator, logger } = deps;
+  const { armState, coordinator, logger, ask } = deps;
 
   return async (interaction: Interaction): Promise<void> => {
     if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === "ask") {
+      const question = interaction.options.getString("question", true);
+      if (!ask) {
+        await interaction.reply({
+          content: "The community memory (gBrain ingest) is not configured.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      try {
+        await interaction.deferReply();
+        await interaction.editReply(await ask(question));
+      } catch (err) {
+        logger.error("/ask failed", err);
+        const content = "Recall failed — is gBrain reachable?";
+        await (interaction.deferred
+          ? interaction.editReply(content)
+          : interaction.reply({ content, flags: MessageFlags.Ephemeral })
+        ).catch(() => undefined);
+      }
+      return;
+    }
 
     const channel = resolveTargetChannel(interaction);
     if (!channel) {

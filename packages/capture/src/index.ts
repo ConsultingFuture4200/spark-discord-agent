@@ -18,6 +18,7 @@ import { nullAgentLoop, type AgentLoop } from "./agent.js";
 import { ArmState } from "./armState.js";
 import { buildClient } from "./client.js";
 import { createInteractionHandler, registerCommands } from "./commands.js";
+import { attachIngestListeners, buildIngestWiring } from "./ingestWiring.js";
 import { createLogger, type Logger } from "./logger.js";
 import { createMessageHandler } from "./text.js";
 import { VoiceCoordinator } from "./voiceState.js";
@@ -91,11 +92,19 @@ export async function startCapture(
     ...(config.obs ? { obs: config.obs } : {}),
   });
 
+  // gBrain ingest (PRD Phase 2): message/edit/delete emitters + /ask, present
+  // only when INGEST_ENABLED=true. Consent (allowlist + opt-out) gates every
+  // emit inside the emitter itself.
+  const ingest = config.ingest
+    ? await buildIngestWiring(config.ingest, logger)
+    : undefined;
+
   const onMessage = createMessageHandler({ client, agent, logger });
   const onInteraction = createInteractionHandler({
     armState,
     coordinator,
     logger,
+    ...(ingest ? { ask: ingest.ask } : {}),
   });
 
   client.on(Events.MessageCreate, (message: Message) => {
@@ -111,6 +120,8 @@ export async function startCapture(
     },
   );
   client.on(Events.Error, (err) => logger.error("discord client error", err));
+
+  if (ingest) attachIngestListeners(client, ingest, logger);
 
   client.once(Events.ClientReady, (ready) => {
     ready.user.setPresence({

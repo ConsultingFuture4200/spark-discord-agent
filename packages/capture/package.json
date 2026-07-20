@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@discord-agent/agent-tools": "workspace:*",
+    "@discord-agent/ingest": "workspace:*",
     "@discord-agent/shared": "workspace:*",
     "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.19.2",
