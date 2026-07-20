@@ -158,4 +158,46 @@ describe("loadConfig", () => {
       }),
     ).toThrow(ConfigError);
   });
+
+  it("omits the ingest block by default (INGEST_ENABLED unset)", () => {
+    const cfg = loadConfig(baseEnv());
+    expect(cfg.ingest).toBeUndefined();
+  });
+
+  it("builds the ingest block with defaults when enabled", () => {
+    const cfg = loadConfig({ ...baseEnv(), INGEST_ENABLED: "true" });
+    expect(cfg.ingest).toEqual({
+      gbrainBaseUrl: "http://127.0.0.1:8770",
+      consentPath: "./data/ingest/consent.json",
+      stateDir: "./data/ingest",
+      region: "discord",
+    });
+  });
+
+  it("honors explicit ingest settings", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      INGEST_ENABLED: "1",
+      GBRAIN_BASE_URL: "http://100.77.83.28:8770",
+      INGEST_CONSENT_PATH: "/etc/agent/consent.json",
+      INGEST_STATE_DIR: "/var/lib/agent/ingest",
+      INGEST_REGION: "resonantos",
+    });
+    expect(cfg.ingest).toEqual({
+      gbrainBaseUrl: "http://100.77.83.28:8770",
+      consentPath: "/etc/agent/consent.json",
+      stateDir: "/var/lib/agent/ingest",
+      region: "resonantos",
+    });
+  });
+
+  it("throws when ingest is enabled but GBRAIN_BASE_URL is not a valid URL", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        INGEST_ENABLED: "true",
+        GBRAIN_BASE_URL: "not-a-url",
+      }),
+    ).toThrow(ConfigError);
+  });
 });

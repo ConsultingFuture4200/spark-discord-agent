@@ -95,6 +95,13 @@ const RawEnvSchema = z.object({
   RECORDER_USER_ID: z.string().optional(),
   RECORDER_LOBBY_CHANNEL_ID: z.string().optional(),
 
+  // gBrain ingest (optional block, gated by INGEST_ENABLED). All fields default.
+  INGEST_ENABLED: envBool(false),
+  GBRAIN_BASE_URL: z.string().url().default("http://127.0.0.1:8770"),
+  INGEST_CONSENT_PATH: z.string().min(1).default("./data/ingest/consent.json"),
+  INGEST_STATE_DIR: z.string().min(1).default("./data/ingest"),
+  INGEST_REGION: z.string().min(1).default("discord"),
+
   // Runtime
   LOG_LEVEL: LogLevelSchema.default("info"),
 });
@@ -155,6 +162,23 @@ export const ObsConfigSchema = z.object({
   recorderLobbyChannelId: z.string().optional(),
 });
 
+/**
+ * gBrain ingest block (community-memory emitters + /ask). Present only when
+ * `INGEST_ENABLED=true`; otherwise `config.ingest` is undefined and no ingest
+ * code runs. Every field has a safe default, and consent still gates what is
+ * actually emitted (a missing consent file at `consentPath` denies everything).
+ */
+export const IngestConfigSchema = z.object({
+  /** gBrain v2 base URL (e.g. over Tailscale to the Spark). */
+  gbrainBaseUrl: z.string().url(),
+  /** Path to the consent JSON (channel allowlist + member opt-out). */
+  consentPath: z.string(),
+  /** Directory for ingest state (the source-URI → memory-id map). */
+  stateDir: z.string(),
+  /** gBrain region column value for every ingested node. */
+  region: z.string(),
+});
+
 export const StorageConfigSchema = z.object({
   dir: z.string(),
   audioRetentionDays: z.number().int().nonnegative(),
@@ -169,6 +193,8 @@ export const ConfigSchema = z.object({
   email: EmailConfigSchema.optional(),
   /** Present only when `OBS_ENABLED=true`; otherwise undefined (feature off). */
   obs: ObsConfigSchema.optional(),
+  /** Present only when `INGEST_ENABLED=true`; otherwise undefined (feature off). */
+  ingest: IngestConfigSchema.optional(),
   storage: StorageConfigSchema,
   logLevel: LogLevelSchema,
 });
@@ -180,6 +206,7 @@ export type ImapConfig = z.infer<typeof ImapConfigSchema>;
 export type SmtpConfig = z.infer<typeof SmtpConfigSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
 export type ObsConfig = z.infer<typeof ObsConfigSchema>;
+export type IngestConfig = z.infer<typeof IngestConfigSchema>;
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -214,6 +241,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const email = buildEmailConfig(e);
   const obs = buildObsConfig(e);
+  const ingest = buildIngestConfig(e);
 
   const config: Config = {
     discord: {
@@ -236,6 +264,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     ...(email ? { email } : {}),
     ...(obs ? { obs } : {}),
+    ...(ingest ? { ingest } : {}),
     storage: {
       dir: e.STORAGE_DIR,
       audioRetentionDays: e.AUDIO_RETENTION_DAYS,
@@ -316,6 +345,21 @@ function buildObsConfig(e: z.infer<typeof RawEnvSchema>): ObsConfig | undefined 
     );
   }
   return result.data;
+}
+
+/**
+ * Build the ingest block when `INGEST_ENABLED=true`, or return undefined when
+ * the gate is off. Every field has a schema default, so an enabled block never
+ * fails here; consent enforcement happens at emit time in the ingest package.
+ */
+function buildIngestConfig(e: z.infer<typeof RawEnvSchema>): IngestConfig | undefined {
+  if (!e.INGEST_ENABLED) return undefined;
+  return {
+    gbrainBaseUrl: e.GBRAIN_BASE_URL,
+    consentPath: e.INGEST_CONSENT_PATH,
+    stateDir: e.INGEST_STATE_DIR,
+    region: e.INGEST_REGION,
+  };
 }
 
 function formatZodError(error: z.ZodError): string {
