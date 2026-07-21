@@ -38,7 +38,11 @@ export async function buildIngestWiring(
 ): Promise<IngestWiring> {
   const client = new GbrainClient({ baseUrl: config.gbrainBaseUrl });
   const consent = await loadConsentConfig(config.consentPath);
-  if (consent.allowChannels.length === 0) {
+  if (consent.allowAllChannels) {
+    logger.info(
+      `ingest consent: server-wide (allowAllChannels), ${consent.optOutMembers.length} member opt-out(s)`,
+    );
+  } else if (consent.allowChannels.length === 0) {
     logger.warn(
       `ingest consent allowlist is empty (${config.consentPath}); nothing will be ingested`,
     );
