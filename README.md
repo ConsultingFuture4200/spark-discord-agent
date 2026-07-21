@@ -2,16 +2,22 @@
 
 # Spark Discord Agent
 
-**A private, always-on Discord agent whose AI runs entirely on your own hardware.**
+**A private, always-on Discord agent whose AI runs entirely on your own hardware —
+and the Discord front-end of a tri-modal community memory.**
 
 It joins voice channels, records each speaker separately, transcribes locally with
 faster-whisper, and posts a structured meeting summary — without any conversation
-content ever reaching a third-party AI service.
+content ever reaching a third-party AI service. With ingest enabled, everything the
+community consents to share flows into **[gBrain](https://github.com/ConsultingFuture4200/gbrain)**,
+a single-writer memory service on **[TriDB](https://github.com/ConsultingFuture4200/tridb)**
+(vector + graph + relational in one PostgreSQL), and `/ask` answers questions with
+fused graph-aware recall.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%3E%3D20-339933?logo=node.js&logoColor=white)
 ![pnpm](https://img.shields.io/badge/pnpm-workspace-f69220?logo=pnpm&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-118%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-216%20passing-brightgreen)
+[![Memory](https://img.shields.io/badge/memory-gBrain%20%C2%B7%20TriDB-4169E1?logo=postgresql&logoColor=white)](https://github.com/ConsultingFuture4200/tridb)
 
 </div>
 
@@ -30,6 +36,15 @@ for text, [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for
 transcription. The design principle is that the heaviest work — transcription and
 summarization — runs **after** a call as a batch job, which plays to the Spark's
 strengths and keeps interactive chat responsive.
+
+The agent is also the ingestion front-end of a **community brain**: messages,
+threads, members, call transcripts, summaries, and media attachments (consent
+permitting) are normalized into typed events and stored by gBrain as memory
+nodes with typed graph edges in TriDB — one Postgres process holding the
+vectors, the graph, and the relational metadata under one WAL. That structure
+is what lets `/ask` answer questions a vector store cannot express, like *"what
+has this member said about X across text and calls"*. A live force-directed
+view of the whole graph is served at gBrain's `/viz`.
 
 > [!IMPORTANT]
 > **No conversation content is sent to any third-party AI API.** Model inference,
@@ -51,6 +66,13 @@ strengths and keeps interactive chat responsive.
   recording starts, and leaves when the channel empties.
 - **Email + DM tools** — reads and sends email (IMAP/SMTP) and answers DMs through a shared
   tool-calling reasoning loop.
+- **Community memory (gBrain/TriDB)** — consent-gated ingest of messages, edits
+  (append-only supersede), deletions (tombstone requests), members, call outputs,
+  and media into a tri-modal store; `/ask` answers with fused vector+graph recall
+  and surfaces the engine's honesty probes in a footer.
+- **Historical backfill** — an idempotent walker ingests every text channel and
+  thread back to the server's first message through the same emitter path as
+  live capture (gBrain dedupes by canonical source ref).
 - **Always-on & resilient** — runs as two systemd services that survive reboots, with
   crash recovery, atomic state writes, and idempotent delivery (a crash never double-posts).
 - **Runs on or off the Spark** — the bot host only needs to reach the Spark's inference
@@ -80,6 +102,15 @@ keeps the audio path independent of transcription and summarization.
    └─ post to Discord thread + optional email               │
                                                             │
    agent-tools ── email (IMAP/SMTP) + reasoning loop ◄──────┘
+        │
+        ▼  (consent-gated ingest events + /ask queries, HTTP)
+   gBrain — single-writer memory service          /viz live graph
+   ├─ normalize · embed (nomic, 768-d) · one txn per memory
+   └─ fused recall (tjs_open: vector + graph + filter in one plan)
+        │
+        ▼
+   TriDB — stock PostgreSQL 17 + pgvector + graph_store_am + tjs_pg
+   (one process, one WAL: vectors, graph topology, relational metadata)
 ```
 
 | Package | Role |
@@ -180,15 +211,20 @@ Full reference lives in [`.env.example`](.env.example). The essentials:
 ## Community memory (gBrain ingest)
 
 With `INGEST_ENABLED=true`, the agent feeds an opt-in slice of the server into
-[gBrain](../gbrain) (the single-writer memory service in front of TriDB) and
-answers `/ask <question>` with fused graph-aware recall, including the engine's
-honesty probes (`graph_censored`, `termination_reason`) in a footer.
+[gBrain](https://github.com/ConsultingFuture4200/gbrain) — the single-writer
+memory service in front of [TriDB](https://github.com/ConsultingFuture4200/tridb),
+a tri-modal Postgres (pgvector + native graph store + relational, fused by the
+`tjs_open` operator in one query plan under one WAL) — and answers
+`/ask <question>` with fused graph-aware recall, including the engine's honesty
+probes (`graph_censored`, `termination_reason`) in a footer.
 
 - **Consent is opt-in and default-DENY.** `INGEST_CONSENT_PATH` points at a JSON
-  file — `{ "allowChannels": ["<channel id>", ...], "optOutMembers": ["<user id>", ...] }`.
-  Channels not allowlisted are never ingested; a missing file ingests nothing.
-  Opted-out members' messages, mentions, and call speech are all excluded at
-  emit time. Voice ingestion keeps the existing announce-on-record behavior.
+  file — `{ "allowChannels": ["<channel id>", ...], "optOutMembers": ["<user id>", ...] }`,
+  or `{ "allowAllChannels": true, ... }` for deliberate server-wide consent
+  (member opt-outs are still honored). Channels not allowlisted are never
+  ingested; a missing file ingests nothing. Opted-out members' messages,
+  mentions, and call speech are all excluded at emit time. Voice ingestion
+  keeps the existing announce-on-record behavior.
 - **What gets ingested:** normalized events POSTed to gBrain's
   `/ingest/event` — messages (edits flagged so gBrain supersedes the stored
   version append-only, deletions as tombstone requests), member identities,
@@ -199,7 +235,22 @@ honesty probes (`graph_censored`, `termination_reason`) in a footer.
   refs) happens server-side next to the single writer, so re-emitting an
   event never double-stores.
 - **State:** `INGEST_STATE_DIR` holds ingest working state (e.g. the durable
-  outbox for events accepted while gBrain is unreachable).
+  outbox for events accepted while gBrain is unreachable, and the backfill's
+  per-channel resume cursors).
+- **Historical backfill:** `node packages/capture/dist/backfill.js` walks every
+  text channel and active/archived thread newest-to-oldest through the same
+  emitter path — consent enforced, idempotent (gBrain's source-ref dedupe means
+  re-runs and overlap with live capture never double-store), resumable via a
+  cursor file. Run it once after enabling ingest; re-runs are a cheap safety net.
+- **Seeing the brain:** gBrain serves a live force-directed visualization of the
+  whole store at `/viz` (nodes colored by kind, fused-query search box, honesty
+  probes on every result set) and the raw extract at `/graph`.
+- **Why TriDB:** recall is not just similarity — the fused operator ranks vector
+  similarity and graph structure (personalized-PageRank reserve) in one pass, so
+  memories reinforced by link paths (a member's messages, one call's chunks)
+  outrank vector-distance-tied strangers. This deployment is TriDB's first
+  real-workload case study
+  ([tridb#33](https://github.com/ConsultingFuture4200/tridb/pull/33)).
 
 ## Privacy boundary
 
@@ -221,5 +272,7 @@ honesty probes (`graph_censored`, `termination_reason`) in a footer.
 - [`PRD-discord-agent (1).md`](PRD-discord-agent%20%281%29.md) — the product spec
 - [`DECISIONS.md`](DECISIONS.md) — resolved build decisions and resilience invariants
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) — deployment runbook
+- [gBrain](https://github.com/ConsultingFuture4200/gbrain) — the memory service this agent feeds (single writer, `/viz`, YouTube ingest)
+- [TriDB](https://github.com/ConsultingFuture4200/tridb) — the tri-modal Postgres engine · [community-memory case study (PR #33)](https://github.com/ConsultingFuture4200/tridb/pull/33)
 - [discord.js](https://discord.js.org) · [@discordjs/voice](https://github.com/discordjs/discord.js/tree/main/packages/voice) — Discord + voice/DAVE
 - [Ollama](https://ollama.com) · [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — local inference
