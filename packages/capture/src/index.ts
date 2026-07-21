@@ -133,7 +133,17 @@ export async function startCapture(
     logger.info(`logged in as ${ready.user.tag}`);
   });
 
-  await registerCommands(config.discord, logger);
+  // Command registration needs the applications.commands scope in the guild;
+  // without it, everything else (text/voice capture, ingest) still works, so
+  // a failure here degrades slash commands instead of killing the service.
+  try {
+    await registerCommands(config.discord, logger);
+  } catch (err) {
+    logger.error(
+      `slash command registration failed — /commands unavailable until the bot is ` +
+        `re-invited with the applications.commands scope: ${String(err)}`,
+    );
+  }
   await client.login(config.discord.token);
   await waitForReady(client);
 
