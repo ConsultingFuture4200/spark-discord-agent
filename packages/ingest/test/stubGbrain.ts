@@ -21,6 +21,8 @@ export interface StubGbrain {
   to(route: string): RecordedRequest[];
   /** Override the canned `/query` response. */
   setQueryResponse(response: unknown): void;
+  /** Make `/ingest/event` answer this HTTP status (null restores success). */
+  setIngestFailure(status: number | null): void;
   close(): Promise<void>;
 }
 
@@ -28,6 +30,7 @@ export async function startStubGbrain(): Promise<StubGbrain> {
   const requests: RecordedRequest[] = [];
   let nextId = 0;
   let queryResponse: unknown = { snippets: [], sources: [] };
+  let ingestFailure: number | null = null;
 
   const server: Server = createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -45,6 +48,9 @@ export async function startStubGbrain(): Promise<StubGbrain> {
 
       if (req.method === "GET" && url === "/health") return respond(200, { ok: true });
       if (req.method === "POST" && url === "/ingest/event") {
+        if (ingestFailure !== null) {
+          return respond(ingestFailure, { error: `stubbed failure ${ingestFailure}` });
+        }
         if (body.type === "tombstone-request") {
           return respond(200, {
             ok: true,
@@ -68,6 +74,9 @@ export async function startStubGbrain(): Promise<StubGbrain> {
     to: (route) => requests.filter((r) => r.url === route),
     setQueryResponse: (response) => {
       queryResponse = response;
+    },
+    setIngestFailure: (status) => {
+      ingestFailure = status;
     },
     close: () =>
       new Promise<void>((resolve, reject) =>

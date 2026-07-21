@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { loadConfig, type IngestConfig } from "@discord-agent/shared";
 import {
+  EventOutbox,
   GbrainClient,
   IngestEmitter,
   loadConsentConfig,
@@ -115,8 +116,16 @@ async function buildCallIngest(
   logger: Logger,
 ): Promise<CallIngest> {
   const consent = await loadConsentConfig(ingest.consentPath);
+  // Durable outbox: call outputs spool to disk when gBrain is down and drain
+  // in order on recovery (own subdir — capture runs its own outbox).
+  const outbox = new EventOutbox(
+    path.join(ingest.stateDir, "outbox-processing"),
+    new GbrainClient({ baseUrl: ingest.gbrainBaseUrl }),
+    { logger },
+  );
+  await outbox.init();
   const emitter = new IngestEmitter({
-    client: new GbrainClient({ baseUrl: ingest.gbrainBaseUrl }),
+    client: outbox,
     consent,
     region: ingest.region,
     logger,

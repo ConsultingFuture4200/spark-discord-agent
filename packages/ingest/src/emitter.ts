@@ -1,6 +1,6 @@
 import type { Segment } from "@discord-agent/shared";
 import { channelAllowed, memberOptedOut, type ConsentConfig } from "./consent.js";
-import type { GbrainClient, IngestEventResult } from "./client.js";
+import type { IngestEventResult, IngestEventSink } from "./client.js";
 import type {
   AttachmentInfo,
   CallOutputEvent,
@@ -26,7 +26,8 @@ import type {
  */
 
 export interface IngestEmitterDeps {
-  client: GbrainClient;
+  /** The direct GbrainClient, or an EventOutbox for durable spooling. */
+  client: IngestEventSink;
   consent: ConsentConfig;
   /** gBrain region column for every stored node (defaults to "discord"). */
   region?: string;

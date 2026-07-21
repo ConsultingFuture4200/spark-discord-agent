@@ -16,6 +16,23 @@ export interface IngestEventResult {
   edges?: number;
   warnings?: string[];
   tombstone_pending?: boolean;
+  /** Set by the outbox when gBrain was unreachable and the event was spooled. */
+  queued?: boolean;
+}
+
+/** Anything the emitter can post ingest events through (client or outbox). */
+export interface IngestEventSink {
+  postEvent(event: Record<string, unknown>): Promise<IngestEventResult>;
+}
+
+/** A non-2xx gBrain response, with the HTTP status for retry/park decisions. */
+export class GbrainRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
 
 export type QueryMode = "vector" | "fused" | "anchored";
@@ -84,7 +101,10 @@ export class GbrainClient {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`gBrain ${route} failed: ${res.status} ${text}`.trim());
+      throw new GbrainRequestError(
+        `gBrain ${route} failed: ${res.status} ${text}`.trim(),
+        res.status,
+      );
     }
     return res.json();
   }

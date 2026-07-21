@@ -5,8 +5,10 @@ import {
   type PartialMessage,
 } from "discord.js";
 import type { IngestConfig } from "@discord-agent/shared";
+import path from "node:path";
 import {
   ask,
+  EventOutbox,
   GbrainClient,
   IngestEmitter,
   loadConsentConfig,
@@ -41,8 +43,14 @@ export async function buildIngestWiring(
       `ingest consent allowlist is empty (${config.consentPath}); nothing will be ingested`,
     );
   }
+  // Durable outbox between "accepted from Discord" and "queued in gBrain":
+  // events spool to disk when gBrain is down and drain in order on recovery.
+  const outbox = new EventOutbox(path.join(config.stateDir, "outbox-capture"), client, {
+    logger,
+  });
+  await outbox.init();
   const emitter = new IngestEmitter({
-    client,
+    client: outbox,
     consent,
     region: config.region,
     logger,

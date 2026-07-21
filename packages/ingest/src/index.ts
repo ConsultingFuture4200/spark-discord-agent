@@ -9,5 +9,6 @@
 export * from "./events.js";
 export * from "./consent.js";
 export * from "./client.js";
+export { EventOutbox, type OutboxOptions } from "./outbox.js";
 export { IngestEmitter, messageSourceRef, type IngestEmitterDeps } from "./emitter.js";
 export * from "./ask.js";

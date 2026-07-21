@@ -88,7 +88,7 @@ keeps the audio path independent of transcription and summarization.
 | [`packages/capture`](packages/capture) | Discord bot — presence, DM/channel text, voice-state auto-join, per-speaker DAVE capture, writes tracks + manifest and enqueues each call. |
 | [`packages/processing`](packages/processing) | The batch worker — watches the queue, runs faster-whisper, merges transcripts, generates the dual summary, and delivers it. |
 | [`packages/agent-tools`](packages/agent-tools) | Email (IMAP read / SMTP send) and the tool-calling reasoning loop shared by DM handling and email delivery. |
-| [`packages/ingest`](packages/ingest) | gBrain community-memory emitters — converts messages, edits/deletes, members, call outputs, and media attachments into memory nodes + typed graph edges over gBrain's HTTP API, with consent gates and the `/ask` fused-recall renderer. |
+| [`packages/ingest`](packages/ingest) | gBrain community-memory emitters — translates messages, edits/deletes, members, call outputs, and media attachments into normalized events for gBrain's `/ingest/event` (graph construction and dedupe live server-side), with consent gates and the `/ask` fused-recall renderer. |
 
 ## Prerequisites
 
@@ -189,14 +189,17 @@ honesty probes (`graph_censored`, `termination_reason`) in a footer.
   Channels not allowlisted are never ingested; a missing file ingests nothing.
   Opted-out members' messages, mentions, and call speech are all excluded at
   emit time. Voice ingestion keeps the existing announce-on-record behavior.
-- **What gets ingested:** messages (with authored / in_channel / in_thread /
-  replies_to / mentions edges), member identities, and each delivered call's
-  transcript chunks, summary, decisions, and action items. Edits become new
-  nodes superseding the original (append-only); deletions become queued
-  tombstone requests. Video/image attachments emit a media-ingest request
-  pointing gBrain's media pipeline at the URL.
-- **State:** `INGEST_STATE_DIR` holds the source-URI → memory-id map that makes
-  ingest idempotent and lets later events edge against earlier ones.
+- **What gets ingested:** normalized events POSTed to gBrain's
+  `/ingest/event` — messages (edits flagged so gBrain supersedes the stored
+  version append-only, deletions as tombstone requests), member identities,
+  each delivered call's transcript + summary (gBrain builds the chunk /
+  topic / decision / action-item / speaker-turn nodes and their edges), and
+  video/image attachments as media events that gBrain downloads, transcribes
+  and captions. All graph construction and dedupe (keyed on canonical source
+  refs) happens server-side next to the single writer, so re-emitting an
+  event never double-stores.
+- **State:** `INGEST_STATE_DIR` holds ingest working state (e.g. the durable
+  outbox for events accepted while gBrain is unreachable).
 
 ## Privacy boundary
 

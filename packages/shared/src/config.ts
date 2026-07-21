@@ -173,7 +173,7 @@ export const IngestConfigSchema = z.object({
   gbrainBaseUrl: z.string().url(),
   /** Path to the consent JSON (channel allowlist + member opt-out). */
   consentPath: z.string(),
-  /** Directory for ingest state (the source-URI → memory-id map). */
+  /** Directory for ingest state (the durable event outbox spool). */
   stateDir: z.string(),
   /** gBrain region column value for every ingested node. */
   region: z.string(),
