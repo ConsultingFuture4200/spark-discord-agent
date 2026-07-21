@@ -41,6 +41,31 @@ describe("consent gates", () => {
     expect(memberOptedOut(consent, "u1")).toBe(false);
   });
 
+  it("allows every channel under allowAllChannels but still honors opt-outs", async () => {
+    const file = path.join(dir, "consent.json");
+    await writeFile(
+      file,
+      JSON.stringify({ allowAllChannels: true, optOutMembers: ["u9"] }),
+      "utf8",
+    );
+
+    const consent = await loadConsentConfig(file);
+
+    expect(channelAllowed(consent, "any-channel")).toBe(true);
+    expect(channelAllowed(consent, "another")).toBe(true);
+    expect(memberOptedOut(consent, "u9")).toBe(true);
+  });
+
+  it("defaults allowAllChannels to false for a partial file", async () => {
+    const file = path.join(dir, "consent.json");
+    await writeFile(file, JSON.stringify({ allowChannels: ["c1"] }), "utf8");
+
+    const consent = await loadConsentConfig(file);
+
+    expect(consent.allowAllChannels).toBe(false);
+    expect(channelAllowed(consent, "c2")).toBe(false);
+  });
+
   it("applies field defaults for a partial file", async () => {
     const file = path.join(dir, "consent.json");
     await writeFile(file, JSON.stringify({ allowChannels: ["c1"] }), "utf8");

@@ -13,6 +13,13 @@ import { z } from "zod";
  */
 
 export const ConsentConfigSchema = z.object({
+  /**
+   * Server-wide consent: every channel is allowed without listing ids.
+   * Requires a deliberate `true` in the config file — there is no way to
+   * reach this state from a missing or partial config. Member opt-outs are
+   * still honored.
+   */
+  allowAllChannels: z.boolean().default(false),
   /** Channel ids (text or voice) whose content may be ingested. */
   allowChannels: z.array(z.string().min(1)).default([]),
   /** User ids whose content is never ingested (messages, mentions, speech). */
@@ -21,7 +28,11 @@ export const ConsentConfigSchema = z.object({
 export type ConsentConfig = z.infer<typeof ConsentConfigSchema>;
 
 /** The deny-everything default used when no consent file exists. */
-export const DENY_ALL: ConsentConfig = { allowChannels: [], optOutMembers: [] };
+export const DENY_ALL: ConsentConfig = {
+  allowAllChannels: false,
+  allowChannels: [],
+  optOutMembers: [],
+};
 
 /**
  * Load the consent config from a JSON file. A missing file yields
@@ -40,9 +51,9 @@ export async function loadConsentConfig(filePath: string): Promise<ConsentConfig
   return ConsentConfigSchema.parse(JSON.parse(raw));
 }
 
-/** True when the channel is explicitly allowlisted. Default deny. */
+/** True when the channel is allowlisted (or server-wide consent is on). Default deny. */
 export function channelAllowed(consent: ConsentConfig, channelId: string): boolean {
-  return consent.allowChannels.includes(channelId);
+  return consent.allowAllChannels || consent.allowChannels.includes(channelId);
 }
 
 /** True when the member has opted out of ingestion. */
