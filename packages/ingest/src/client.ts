@@ -1,16 +1,21 @@
 /**
  * Thin HTTP client for the gBrain v2 wire contract (PRD D7). Only the routes
- * ingest and /ask need: POST /memory, POST /edge, POST /query, GET /health.
+ * ingest and /ask need: POST /ingest/event, POST /query, GET /health.
  * `fetchImpl` is injectable so tests point it at a stub server.
  */
 
-export interface MemoryInput {
-  text: string;
-  kind?: string;
-  region?: string;
-  source?: string;
-  /** Memory id this one supersedes (append-only edit handling, PRD D6). */
-  supersedes?: number;
+/**
+ * What gBrain's EventIngestor answers on POST /ingest/event: created memory
+ * ids + edge count for graph-building events, `tombstone_pending` for
+ * tombstone requests.
+ */
+export interface IngestEventResult {
+  ok: boolean;
+  /** Ids of memories created by this event (reused anchors are not listed). */
+  ids?: number[];
+  edges?: number;
+  warnings?: string[];
+  tombstone_pending?: boolean;
 }
 
 export type QueryMode = "vector" | "fused" | "anchored";
@@ -45,19 +50,9 @@ export class GbrainClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  /** Store a memory node; returns its dense memory id. */
-  async storeMemory(input: MemoryInput): Promise<number> {
-    const body = await this.post("/memory", input);
-    const id = (body as { id?: unknown }).id;
-    if (!Number.isInteger(id)) {
-      throw new Error(`gBrain /memory returned no integer id: ${JSON.stringify(body)}`);
-    }
-    return id as number;
-  }
-
-  /** Create a typed directed edge between two stored memories. */
-  async createEdge(src: number, dst: number, rel: string): Promise<void> {
-    await this.post("/edge", { src, dst, rel });
+  /** POST a normalized ingest event; gBrain builds the nodes + edges. */
+  async postEvent(event: Record<string, unknown>): Promise<IngestEventResult> {
+    return (await this.post("/ingest/event", event)) as IngestEventResult;
   }
 
   /** Recall. Defaults to gBrain's own default mode (fused) when unset. */

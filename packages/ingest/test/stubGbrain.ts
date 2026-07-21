@@ -3,8 +3,9 @@ import type { AddressInfo } from "node:net";
 
 /**
  * A stub gBrain HTTP server for fixture-driven tests: records every request
- * and answers the wire contract minimally — `/memory` allocates dense ids,
- * `/edge` echoes, `/query` returns a configurable canned response.
+ * and answers the wire contract minimally — `/ingest/event` allocates one
+ * dense id per graph-building event (tombstone requests get the ledger
+ * shape), `/query` returns a configurable canned response.
  */
 
 export interface RecordedRequest {
@@ -43,11 +44,15 @@ export async function startStubGbrain(): Promise<StubGbrain> {
       };
 
       if (req.method === "GET" && url === "/health") return respond(200, { ok: true });
-      if (req.method === "POST" && url === "/memory") return respond(200, { id: nextId++ });
-      if (req.method === "POST" && url === "/edge") {
-        return respond(200, {
-          edge: { src: body.src, dst: body.dst, rel: body.rel, type_id: 1 },
-        });
+      if (req.method === "POST" && url === "/ingest/event") {
+        if (body.type === "tombstone-request") {
+          return respond(200, {
+            ok: true,
+            tombstone_pending: true,
+            ledger: "/data/pending-tombstones.jsonl",
+          });
+        }
+        return respond(200, { ok: true, ids: [nextId++], edges: 1, warnings: [] });
       }
       if (req.method === "POST" && url === "/query") return respond(200, queryResponse);
       respond(404, { error: `no route for ${req.method} ${url}` });

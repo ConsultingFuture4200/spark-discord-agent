@@ -4,7 +4,6 @@ import path from "node:path";
 import { loadConfig, type IngestConfig } from "@discord-agent/shared";
 import {
   GbrainClient,
-  IdMap,
   IngestEmitter,
   loadConsentConfig,
 } from "@discord-agent/ingest";
@@ -118,7 +117,6 @@ async function buildCallIngest(
   const consent = await loadConsentConfig(ingest.consentPath);
   const emitter = new IngestEmitter({
     client: new GbrainClient({ baseUrl: ingest.gbrainBaseUrl }),
-    idMap: await IdMap.open(path.join(ingest.stateDir, "idmap.json")),
     consent,
     region: ingest.region,
     logger,

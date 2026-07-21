@@ -5,11 +5,9 @@ import {
   type PartialMessage,
 } from "discord.js";
 import type { IngestConfig } from "@discord-agent/shared";
-import path from "node:path";
 import {
   ask,
   GbrainClient,
-  IdMap,
   IngestEmitter,
   loadConsentConfig,
   type MessageDeleteEvent,
@@ -43,10 +41,8 @@ export async function buildIngestWiring(
       `ingest consent allowlist is empty (${config.consentPath}); nothing will be ingested`,
     );
   }
-  const idMap = await IdMap.open(path.join(config.stateDir, "idmap.json"));
   const emitter = new IngestEmitter({
     client,
-    idMap,
     consent,
     region: config.region,
     logger,

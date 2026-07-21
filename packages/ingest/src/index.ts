@@ -7,9 +7,7 @@
  * here is fixture-testable against a stub gBrain HTTP server.
  */
 export * from "./events.js";
-export * from "./uris.js";
 export * from "./consent.js";
-export { IdMap } from "./idmap.js";
 export * from "./client.js";
-export { IngestEmitter, chunkSegments, type IngestEmitterDeps } from "./emitter.js";
+export { IngestEmitter, messageSourceRef, type IngestEmitterDeps } from "./emitter.js";
 export * from "./ask.js";
